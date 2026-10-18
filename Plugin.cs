@@ -1,22 +1,9 @@
 /*
- * ii's Stupid Menu  Plugin.cs
- * A mod menu for Gorilla Tag with over 1000+ mods
- *
- * Copyright (C) 2026  Goldentrophy Software
- * https://github.com/iireborn/iis.Stupid.Menu
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * ii Reborn
+ * Portions Copyright (C) 2025–2026 Goldentrophy Software
+ * Licensed under GNU GPL v3.0-or-later — see LICENSE and NOTICE.
+ * This file is part of a derivative work; see NOTICE for attribution
+ * and modification history. Do not remove this notice.
  */
 
 using BepInEx;
@@ -42,12 +29,44 @@ namespace iiMenu
         public static ManualLogSource PluginLogger => instance.Logger;
         public static bool FirstLaunch;
 
+        /// <summary>
+        /// One-time data migration: renames the legacy directory ("iisStupidMenu") to the
+        /// current <see cref="PluginInfo.BaseDirectory"/>. Rename-only by design — if BOTH
+        /// directories exist (e.g. someone alternated legacy and Reborn builds), nothing is
+        /// merged or overwritten; both are left untouched and Reborn keeps its own.
+        /// </summary>
+        private static void MigrateLegacyBaseDirectory()
+        {
+            try
+            {
+                if (!Directory.Exists(PluginInfo.LegacyBaseDirectory))
+                    return;
+
+                if (Directory.Exists(PluginInfo.BaseDirectory))
+                {
+                    LogManager.Log($"[Migrate] Both '{PluginInfo.LegacyBaseDirectory}' and '{PluginInfo.BaseDirectory}' exist.");
+                    return;
+                }
+
+                Directory.Move(PluginInfo.LegacyBaseDirectory, PluginInfo.BaseDirectory);
+                LogManager.Log($"[Migrate] Renamed data directory '{PluginInfo.LegacyBaseDirectory}' -> '{PluginInfo.BaseDirectory}'.");
+            }
+            catch (System.Exception e)
+            {
+                LogManager.Log($"[Migrate] Failed to migrate '{PluginInfo.LegacyBaseDirectory}': {e.Message}");
+            }
+        }
+
         private void Awake()
         {
             // Set console title
             Console.Title = $"Sakura's Admin Panel // Build {PluginInfo.Version}";
             instance = this;
             Application.quitting += OnApplicationQuitting;
+
+            UnityEngine.AudioConfiguration audioConfig = UnityEngine.AudioSettings.GetConfiguration();
+            audioConfig.dspBufferSize = 1024;
+            UnityEngine.AudioSettings.Reset(audioConfig);
 
             string logoLines = PluginInfo.Logo.Split(@"
 ")
@@ -59,11 +78,13 @@ namespace iiMenu
     Compiled {PluginInfo.BuildTimestamp}
     
     This program comes with ABSOLUTELY NO WARRANTY;
-    for details see `https://github.com/iireborn/iis.Stupid.Menu/GPL/WARRANTY`
+    for details see `https://github.com/iimenu/project/GPL/WARRANTY`
     
     This is free software, and you are welcome to redistribute it under certain conditions;
-    see `https://github.com/iireborn/iis.Stupid.Menu/GPL/REDISTRIBUTION` for details.
+    see `https://github.com/iimenu/project/GPL/REDISTRIBUTION` for details.
 ");
+
+            MigrateLegacyBaseDirectory();
 
             FirstLaunch = !Directory.Exists(PluginInfo.BaseDirectory);
 
@@ -100,19 +121,21 @@ namespace iiMenu
             }
 
             if (File.Exists($"{PluginInfo.BaseDirectory}/iiMenu_DisableTelemetry.txt"))
-                ServerData.DisableTelemetry = true;
+                TelemetryClient.DisableTelemetry = true;
             
             GorillaTagger.OnPlayerSpawned(LoadMenu);
         }
 
         private void OnApplicationQuitting()
         {
+            try { TelemetryClient.Shutdown(); } catch { }
             try { IiServersManager.ShutdownForGameExit(); } catch { }
         }
 
         private void OnDestroy()
         {
             Application.quitting -= OnApplicationQuitting;
+            try { TelemetryClient.Shutdown(); } catch { }
             try { IiServersManager.ShutdownForGameExit(); } catch { }
             Main.UnloadMenu();
             try { Utilities.AssetUtilities.ReleaseAll(); } catch { }
@@ -126,6 +149,7 @@ namespace iiMenu
             Loader.AddComponent<CoroutineManager>();
             Loader.AddComponent<NotificationManager>();
             Loader.AddComponent<CustomBoardManager>();
+            Loader.AddComponent<FrameProfiler>();
             Loader.AddComponent<UI>();
 
             DontDestroyOnLoad(Loader);
